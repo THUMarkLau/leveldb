@@ -70,7 +70,9 @@ void PutVarint64(std::string* dst, uint64_t v) {
 }
 
 void PutLengthPrefixedSlice(std::string* dst, const Slice& value) {
+  // record the length of value
   PutVarint32(dst, value.size());
+  // record the value of variable value
   dst->append(value.data(), value.size());
 }
 
