@@ -506,6 +506,7 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
                                 Version* base) {
   mutex_.AssertHeld();
   const uint64_t start_micros = env_->NowMicros();
+  // 生成文件元数据
   FileMetaData meta;
   meta.number = versions_->NewFileNumber();
   pending_outputs_.insert(meta.number);
@@ -516,6 +517,7 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
   Status s;
   {
     mutex_.Unlock();
+    // 将 Immutable MemTable 写入到文件中
     s = BuildTable(dbname_, env_, options_, table_cache_, iter, &meta);
     mutex_.Lock();
   }
@@ -533,8 +535,11 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
     const Slice min_user_key = meta.smallest.user_key();
     const Slice max_user_key = meta.largest.user_key();
     if (base != nullptr) {
+      // 在所有无文件和该 SSTable 不发生 key 重叠的 Level 中
+      // 选择一个最大的 Level 插入该文件
       level = base->PickLevelForMemTableOutput(min_user_key, max_user_key);
     }
+    // 将文件加入到文件列表中
     edit->AddFile(level, meta.number, meta.file_size, meta.smallest,
                   meta.largest);
   }

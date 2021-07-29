@@ -95,28 +95,40 @@ void TableBuilder::Add(const Slice& key, const Slice& value) {
   Rep* r = rep_;
   assert(!r->closed);
   if (!ok()) return;
+  // 保证插入是有序的
   if (r->num_entries > 0) {
     assert(r->options.comparator->Compare(key, Slice(r->last_key)) > 0);
   }
 
+  // 如果当前内存中的 Block 是空的，那么就为这个 Block 生成一个 IndexKey
+  // 这个 IndexKey 不一定会出现在用户写入的数据中，而是根据计算得出的
+  // 可以将这个 Block 和上一个 Block 分开的最短的 Key
+  // 例如上一个 Block 的 IndexKey 是 "the great"， 当前 Block 插入的第一个
+  // key 为 "the hello" ，那么这个 IndexKey 需要满足
+  // "the great" < IndexKey <= "the hello"
+  // 例如，其值可能是 "the h"
   if (r->pending_index_entry) {
     assert(r->data_block.empty());
     r->options.comparator->FindShortestSeparator(&r->last_key, key);
     std::string handle_encoding;
     r->pending_handle.EncodeTo(&handle_encoding);
+    // 将这个 IndexKey 记录到 index block 中
     r->index_block.Add(r->last_key, Slice(handle_encoding));
     r->pending_index_entry = false;
   }
 
+  // 如果需要生成 BloomFilter ，则将这个数据编码进 BloomFilter 中
   if (r->filter_block != nullptr) {
     r->filter_block->AddKey(key);
   }
 
   r->last_key.assign(key.data(), key.size());
   r->num_entries++;
+  // 将数据编码进 DataBlock 中
   r->data_block.Add(key, value);
 
   const size_t estimated_block_size = r->data_block.CurrentSizeEstimate();
+  // 如果 DataBlock 的大小大于阈值（默认为 4KB），则将这个 DataBlock 刷到磁盘上
   if (estimated_block_size >= r->options.block_size) {
     Flush();
   }

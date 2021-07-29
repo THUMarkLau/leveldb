@@ -68,12 +68,17 @@ Slice BlockBuilder::Finish() {
   return Slice(buffer_);
 }
 
+// BlockBuilder 会寻找不同 key 之间可以共享的部分，以此进行压缩
+// 压缩只会对 key 进行，不会对 value 进行
+// 压缩后的格式为
+// <与前一个 key 的共享长度><不共享的长度><value 的长度><key 不共享的部分><value>
 void BlockBuilder::Add(const Slice& key, const Slice& value) {
   Slice last_key_piece(last_key_);
   assert(!finished_);
   assert(counter_ <= options_->block_restart_interval);
   assert(buffer_.empty()  // No values yet?
          || options_->comparator->Compare(key, last_key_piece) > 0);
+  // 如果当前共享内容的键数目没有达到阈值，就寻找当前键和上一个键之间重叠的部分
   size_t shared = 0;
   if (counter_ < options_->block_restart_interval) {
     // See how much sharing to do with previous string
@@ -86,18 +91,19 @@ void BlockBuilder::Add(const Slice& key, const Slice& value) {
     restarts_.push_back(buffer_.size());
     counter_ = 0;
   }
+  // 当前键和上一个键不重叠的大小
   const size_t non_shared = key.size() - shared;
 
-  // Add "<shared><non_shared><value_size>" to buffer_
+  // 将 "<shared><non_shared><value_size>" 编码到 buffer_ 中
   PutVarint32(&buffer_, shared);
   PutVarint32(&buffer_, non_shared);
   PutVarint32(&buffer_, value.size());
 
-  // Add string delta to buffer_ followed by value
+  // 将当前键不共享的部分以及 value 的内容编码到 buffer_ 中
   buffer_.append(key.data() + shared, non_shared);
   buffer_.append(value.data(), value.size());
 
-  // Update state
+  // 更新 last_key_
   last_key_.resize(shared);
   last_key_.append(key.data() + shared, non_shared);
   assert(Slice(last_key_) == key);
